@@ -20,6 +20,9 @@ import 'chartjs-adapter-date-fns';
 
 ChartJS.register(CategoryScale, LinearScale, TimeScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend, ChartDataLabels);
 
+// API Configuration
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
 // Safe number conversion and formatting utilities
 const normalizeNumericValue = (value, defaultValue = 0) => {
   if (value === null || value === undefined) return defaultValue;
@@ -479,21 +482,39 @@ function App() {
     setLoginLoading(true);
 
     try {
-      const response = await axios.post('http://localhost:5000/api/login', {
+      const response = await axios.post(`${API_URL}/api/login`, {
         email: loginEmail,
         password: loginPassword
+      }, {
+        headers: {
+          'Content-Type': 'application/json'
+        }
       });
 
       if (response.status === 200) {
         const foundUser = response.data.user;
-        localStorage.setItem('iot-current-user', JSON.stringify({ id: foundUser.id, name: foundUser.name, email: foundUser.email }));
-        localStorage.setItem('token', response.data.token);
-        setUser({ id: foundUser.id, name: foundUser.name, email: foundUser.email, loggedIn: true });
+        const token = response.data.token;
+        
+        // Store user data in localStorage
+        localStorage.setItem('iot-current-user', JSON.stringify({ 
+          id: foundUser.id, 
+          name: foundUser.name, 
+          email: foundUser.email 
+        }));
+        localStorage.setItem('token', token);
+        
+        // Update user state
+        setUser({ 
+          id: foundUser.id, 
+          name: foundUser.name, 
+          email: foundUser.email, 
+          loggedIn: true 
+        });
         
         // Fetch user preferences to get cost per kWh
         try {
-          const prefResponse = await axios.get('http://localhost:5000/api/user-preferences', {
-            headers: { Authorization: `Bearer ${response.data.token}` }
+          const prefResponse = await axios.get(`${API_URL}/api/user-preferences`, {
+            headers: { Authorization: `Bearer ${token}` }
           });
           if (prefResponse.data && prefResponse.data.cost_per_kwh) {
             setCostPerKwh(prefResponse.data.cost_per_kwh);
@@ -502,18 +523,30 @@ function App() {
           console.log('Could not fetch user preferences, using default rate');
         }
         
-        setCurrentPage('dashboard');
-        
+        // Clear form and redirect to dashboard
         setLoginEmail('');
         setLoginPassword('');
+        setCurrentPage('dashboard');
         console.log('✅ Login successful');
       }
     } catch (error) {
       console.error('Login error:', error);
-      if (error.response?.status === 401) {
-        setLoginGeneralError('Invalid email or password');
+      
+      // Handle specific error cases
+      if (error.code === 'ECONNABORTED') {
+        setLoginGeneralError('Request timeout. Please check your connection and try again.');
+      } else if (error.code === 'ERR_NETWORK') {
+        setLoginGeneralError('Network error. Unable to connect to the server.');
+      } else if (error.response?.status === 401) {
+        setLoginGeneralError('Invalid credentials. Please check your email and password.');
+      } else if (error.response?.status === 400) {
+        setLoginGeneralError('Invalid credentials. Please check your email and password.');
+      } else if (error.response?.status === 500) {
+        setLoginGeneralError('Server error. Please try again later.');
       } else if (error.response?.data?.error) {
         setLoginGeneralError(error.response.data.error);
+      } else if (!error.response) {
+        setLoginGeneralError('Network error. Please check your internet connection.');
       } else {
         setLoginGeneralError('Login failed. Please try again.');
       }
